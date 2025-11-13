@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from src.utils import fetch_alerts, ALERT_THRESHOLD
 
+
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / 'models' / 'fastag_fraud_model.pkl'
 
