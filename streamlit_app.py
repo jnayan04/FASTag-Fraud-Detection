@@ -1,17 +1,30 @@
-# src/streamlit_app.py
-
 import streamlit as st
 import pandas as pd
 import joblib
-import json
 from pathlib import Path
-from src.utils import fetch_alerts, ALERT_THRESHOLD
-import requests
+import sqlite3
+import json
 
+# -----------------------------
+# PATHS
+# -----------------------------
+ROOT = Path(__file__).resolve().parent
+MODEL_PATH = ROOT / "models" / "fastag_fraud_model.pkl"
+DB_PATH = ROOT / "alerts.db"
+
+# -----------------------------
+# LOAD MODEL ONCE
+# -----------------------------
+@st.cache_resource
+def load_model():
+    return joblib.load(MODEL_PATH)
+
+model = load_model()
+
+# -----------------------------
+# FEATURES (fixed!)
+# -----------------------------
 FEATURES = [
-    "transaction_id",
-    "tag_id",
-    "timestamp",
     "amount",
     "time_since_last_tx",
     "tx_count_1h",
@@ -20,114 +33,123 @@ FEATURES = [
     "velocity_kmph"
 ]
 
+# -----------------------------
+# DATABASE FUNCTIONS
+# -----------------------------
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transaction_id TEXT,
+            tag_id TEXT,
+            fraud_score REAL,
+            payload TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-ROOT = Path(__file__).resolve().parent
-MODEL_PATH = ROOT / "models" / "fastag_fraud_model.pkl"
+def save_alert(transaction_id, tag_id, fraud_score, payload):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO alerts (transaction_id, tag_id, fraud_score, payload)
+        VALUES (?, ?, ?, ?)
+    """, (transaction_id, tag_id, fraud_score, json.dumps(payload)))
+    conn.commit()
+    conn.close()
 
-# Load model
-artifact = joblib.load(MODEL_PATH)
+def fetch_alerts():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM alerts ORDER BY created_at DESC", conn)
+    conn.close()
+    return df
 
-st.set_page_config(page_title="FASTag Fraud Dashboard", layout="wide")
-st.title("FASTag Fraud Detection System")
+# Initialize DB at startup
+init_db()
+
+# -----------------------------
+# STREAMLIT UI
+# -----------------------------
+st.title("FASTag Fraud Detection")
 
 tabs = st.tabs(["Real-time Scoring", "Bulk Upload & Score", "Alerts / Cases"])
 
-# ---------------------------------------------------------------------------
-# REAL-TIME SCORING
+
+# ================================================================
+# 1️⃣ REAL-TIME SCORING
+# ================================================================
 with tabs[0]:
     st.header("Real-time scoring")
-    cols = st.columns(2)
 
-    with cols[0]:
-        transaction_id = st.text_input("Transaction ID", "TX000001")
-        tag_id = st.text_input("Tag ID", "TAG00001")
-        timestamp = st.text_input("Timestamp", "2025-01-01T12:00:00")
-        amount = st.number_input("Amount", value=100.0)
-        time_since_last_tx = st.number_input("time_since_last_tx (s)", value=120)
-
-    with cols[1]:
-        tx_count_1h = st.number_input("tx_count_1h", value=1)
-        unique_plazas_7d = st.number_input("unique_plazas_7d", value=1)
-        mismatched_ocr = st.selectbox("mismatched_ocr", [0, 1])
-        velocity_kmph = st.number_input("velocity_kmph", value=40)
+    transaction_id = st.text_input("Transaction ID")
+    tag_id = st.text_input("Tag ID")
+    amount = st.number_input("Amount", min_value=0.0, value=100.0)
+    time_since_last_tx = st.number_input("time_since_last_tx (s)", min_value=0, value=1000)
+    tx_count_1h = st.number_input("tx_count_1h", min_value=0, value=1)
+    unique_plazas_7d = st.number_input("unique_plazas_7d", min_value=0, value=1)
+    mismatched_ocr = st.number_input("mismatched_ocr", min_value=0, max_value=1, value=0)
+    velocity_kmph = st.number_input("velocity_kmph", min_value=0, value=60)
 
     if st.button("Score transaction"):
         payload = {
-            "transaction_id": transaction_id,
-            "tag_id": tag_id,
-            "timestamp": timestamp,
-            "amount": float(amount),
-            "time_since_last_tx": int(time_since_last_tx),
-            "tx_count_1h": int(tx_count_1h),
-            "unique_plazas_7d": int(unique_plazas_7d),
-            "mismatched_ocr": int(mismatched_ocr),
-            "velocity_kmph": int(velocity_kmph),
+            "amount": amount,
+            "time_since_last_tx": time_since_last_tx,
+            "tx_count_1h": tx_count_1h,
+            "unique_plazas_7d": unique_plazas_7d,
+            "mismatched_ocr": mismatched_ocr,
+            "velocity_kmph": velocity_kmph
         }
 
-        # Convert to DataFrame for prediction
         df = pd.DataFrame([{k: payload[k] for k in FEATURES}])
-        score = float(model.predict_proba(df)[:, 1][0])
+        fraud_score = float(model.predict_proba(df)[:, 1][0])
 
-        st.metric("Fraud score", f"{score:.3f}")
+        st.write(f"### Fraud Score: **{fraud_score:.4f}**")
 
-        if score >= ALERT_THRESHOLD:
-            st.warning("⚠️ High fraud risk!")
-        else:
-            st.success("Transaction seems normal.")
+        if fraud_score > 0.6:
+            save_alert(transaction_id, tag_id, fraud_score, payload)
+            st.error("⚠️ Fraud Alert Generated & Saved!")
 
-# ---------------------------------------------------------------------------
-# BULK CSV UPLOAD
+
+# ================================================================
+# 2️⃣ BULK CSV UPLOAD
+# ================================================================
 with tabs[1]:
-    st.header("Bulk CSV upload & scoring")
-    uploaded = st.file_uploader("Upload a CSV of transactions", type=["csv"])
+    st.header("Bulk CSV Upload & Scoring")
+
+    uploaded = st.file_uploader("Upload CSV", type=["csv"])
 
     if uploaded:
         df = pd.read_csv(uploaded)
-        missing = set(FEATURES) - set(df.columns)
 
+        # check if features exist
+        missing = [f for f in FEATURES if f not in df.columns]
         if missing:
-            st.error("CSV missing columns: " + ", ".join(missing))
+            st.error(f"Missing columns: {missing}")
         else:
             df["fraud_score"] = model.predict_proba(df[FEATURES])[:, 1]
-            st.write("Top flagged transactions:")
 
-            flagged = df[df["fraud_score"] >= ALERT_THRESHOLD].sort_values(
-                "fraud_score", ascending=False
-            )
+            st.write("### Scored Results")
+            st.dataframe(df)
 
-            st.dataframe(flagged.head(100))
-            st.download_button(
-                "Download flagged CSV",
-                flagged.to_csv(index=False),
-                file_name="flagged.csv",
-            )
+            # save all high-risk alerts
+            for idx, row in df.iterrows():
+                if row["fraud_score"] > 0.6:
+                    save_alert(row.get("transaction_id", "N/A"),
+                               row.get("tag_id", "N/A"),
+                               float(row["fraud_score"]),
+                               row.to_dict())
 
-# ---------------------------------------------------------------------------
-# ALERTS TAB
+
+# ================================================================
+# 3️⃣ ALERTS / CASES VIEW
+# ================================================================
 with tabs[2]:
-    st.header("Alerts / Cases (Local only)")
-    st.info("⚠️ Alerts shown here are only saved locally when running FastAPI. Streamlit Cloud cannot store alerts.")
+    st.header("Fraud Alerts / Cases")
+    df = fetch_alerts()
+    st.dataframe(df)
 
-    rows = fetch_alerts(200)
-
-    if not rows:
-        st.write("No alerts yet.")
-    else:
-        df_rows = []
-
-        for r in rows:
-            payload = json.loads(r[3])
-            df_rows.append(
-                {
-                    "id": r[0],
-                    "transaction_id": r[1],
-                    "tag_id": r[2],
-                    "fraud_score": r[4],
-                    "payload": payload,
-                    "created_at": r[5],
-                }
-            )
-
-        adf = pd.DataFrame(df_rows)
-        st.dataframe(adf.sort_values("fraud_score", ascending=False))
 
