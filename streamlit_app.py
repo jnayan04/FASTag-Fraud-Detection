@@ -38,7 +38,7 @@ with tabs[0]:
     tag_id = st.text_input("Tag ID")
 
     # Feature inputs
-    time_since_last_tx = st.number_input("Time since last tx (mins)", min_value=0.0)
+    time_since_last_tx = st.number_input("Time since last tx", min_value=0.0)
     tx_count_1h = st.number_input("Tx count 1h", min_value=0)
     amount = st.number_input("Amount", min_value=0.0)
     unique_plazas_7d = st.number_input("Unique plazas (7d)", min_value=0)
