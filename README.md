@@ -1,3 +1,4 @@
+
 # FASTag Fraud Detection System 🚗💳
 
 A real-time and batch FASTag transaction fraud detection system built using:
@@ -16,3 +17,5 @@ A real-time and batch FASTag transaction fraud detection system built using:
 pip install -r requirements.txt
 uvicorn src.inference_api:app --reload --port 8000
 streamlit run src/streamlit_app.py
+=======
+
