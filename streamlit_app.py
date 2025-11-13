@@ -6,15 +6,13 @@ import joblib
 import json
 from pathlib import Path
 from src.utils import fetch_alerts, ALERT_THRESHOLD
+import requests
 
+ROOT = Path(__file__).resolve().parent
+MODEL_PATH = ROOT / "models" / "fastag_fraud_model.pkl"
 
-ROOT = Path(__file__).resolve().parents[1]
-MODEL_PATH = ROOT / 'models' / 'fastag_fraud_model.pkl'
-
-# Load model once at start
+# Load model
 artifact = joblib.load(MODEL_PATH)
-model = artifact["model"]
-FEATURES = artifact["features"]
 
 st.set_page_config(page_title="FASTag Fraud Dashboard", layout="wide")
 st.title("FASTag Fraud Detection System")
