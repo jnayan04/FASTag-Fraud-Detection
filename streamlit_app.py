@@ -8,6 +8,19 @@ from pathlib import Path
 from src.utils import fetch_alerts, ALERT_THRESHOLD
 import requests
 
+FEATURES = [
+    "transaction_id",
+    "tag_id",
+    "timestamp",
+    "amount",
+    "time_since_last_tx",
+    "tx_count_1h",
+    "unique_plazas_7d",
+    "mismatched_ocr",
+    "velocity_kmph"
+]
+
+
 ROOT = Path(__file__).resolve().parent
 MODEL_PATH = ROOT / "models" / "fastag_fraud_model.pkl"
 
