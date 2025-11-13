@@ -1,0 +1,8 @@
+
+```txt
+__pycache__/
+*.pyc
+*.pkl
+*.db
+venv/
+data/
