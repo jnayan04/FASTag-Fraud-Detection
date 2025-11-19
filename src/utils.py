@@ -5,7 +5,7 @@ import json
 
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / 'alerts.db'
-ALERT_THRESHOLD = 0.7
+ALERT_THRESHOLD = 0.5
 
 def init_db():
     conn = sqlite3.connect(DB)
