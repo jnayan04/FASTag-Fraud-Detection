@@ -90,17 +90,37 @@ with tabs[1]:
     if uploaded:
         df = pd.read_csv(uploaded)
 
+        # Check if required columns exist
         missing = [c for c in FEATURES if c not in df.columns]
         if missing:
             st.error(f"Missing columns: {missing}")
-        else:
-            df["fraud_score"] = model.predict_proba(df[FEATURES])[:, 1]
-            st.success("Scoring complete!")
-            st.dataframe(df)
 
-            # Download scored file
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download scored CSV", csv, "scored_output.csv")
+        else:
+            # Score all transactions
+            df["fraud_score"] = model.predict_proba(df[FEATURES])[:, 1]
+
+            # Filter flagged transactions ONLY
+            flagged = df[df["fraud_score"] >= ALERT_THRESHOLD].copy()
+
+            st.success(f"Scoring complete! Flagged {len(flagged)} high-risk transactions.")
+
+            if flagged.empty:
+                st.info("No transactions exceeded the fraud threshold.")
+            else:
+                # Sort by risk descending
+                flagged = flagged.sort_values("fraud_score", ascending=False)
+
+                st.subheader("Flagged Fraudulent Transactions")
+                st.dataframe(flagged)
+
+                # Download only flagged rows
+                csv = flagged.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Download flagged CSV",
+                    csv,
+                    "flagged_transactions.csv"
+                )
+
 
 # =========================================================
 # TAB 3 — VIEW ALERTS / CASES
